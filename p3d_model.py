@@ -19,6 +19,7 @@ def conv_T(in_planes,out_planes,stride=1,padding=1):
     return nn.Conv3d(in_planes,out_planes,kernel_size=(3,1,1),stride=1,
                      padding=padding,bias=False)
 
+
 def downsample_basic_block(x, planes, stride):
     out = F.avg_pool3d(x, kernel_size=1, stride=stride)
     zero_pads = torch.Tensor(out.size(0), planes - out.size(1),
@@ -30,6 +31,7 @@ def downsample_basic_block(x, planes, stride):
     out = Variable(torch.cat([out.data, zero_pads], dim=1))
 
     return out
+
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -296,86 +298,87 @@ def P3D199(pretrained=False,modality='RGB',**kwargs):
     return model
 
 # custom operation
-def get_optim_policies(model=None,modality='RGB',enable_pbn=True):
-    '''
-    first conv:         weight --> conv weight
-                        bias   --> conv bias
-    normal action:      weight --> non-first conv + fc weight
-                        bias   --> non-first conv + fc bias
-    bn:                 the first bn2, and many all bn3.
-
-    '''
-    first_conv_weight = []
-    first_conv_bias = []
-    normal_weight = []
-    normal_bias = []
-    bn = []
-
-    if model==None:
-        log.l.info('no model!')
-        exit()
-
-    conv_cnt = 0
-    bn_cnt = 0
-    for m in model.modules():
-        if isinstance(m, torch.nn.Conv3d) or isinstance(m, torch.nn.Conv2d):
-            ps = list(m.parameters())
-            conv_cnt += 1
-            if conv_cnt == 1:
-                first_conv_weight.append(ps[0])
-                if len(ps) == 2:
-                    first_conv_bias.append(ps[1])
-            else:
-                normal_weight.append(ps[0])
-                if len(ps) == 2:
-                    normal_bias.append(ps[1])
-        elif isinstance(m, torch.nn.Linear):
-            ps = list(m.parameters())
-            normal_weight.append(ps[0])
-            if len(ps) == 2:
-                normal_bias.append(ps[1])
-              
-        elif isinstance(m, torch.nn.BatchNorm3d):
-            bn_cnt += 1
-            # later BN's are frozen
-            if not enable_pbn or bn_cnt == 1:
-                bn.extend(list(m.parameters()))
-        elif isinstance(m,torch.nn.BatchNorm2d):
-            bn.extend(list(m.parameters()))
-        elif len(m._modules) == 0:
-            if len(list(m.parameters())) > 0:
-                raise ValueError("New atomic module type: {}. Need to give it a learning policy".format(type(m)))
-
-    slow_rate=0.7
-    n_fore=int(len(normal_weight)*slow_rate)
-    slow_feat=normal_weight[:n_fore] # finetune slowly.
-    slow_bias=normal_bias[:n_fore] 
-    normal_feat=normal_weight[n_fore:]
-    normal_bias=normal_bias[n_fore:]
-
-    return [
-        {'params': first_conv_weight, 'lr_mult': 5 if modality == 'Flow' else 1, 'decay_mult': 1,
-         'name': "first_conv_weight"},
-        {'params': first_conv_bias, 'lr_mult': 10 if modality == 'Flow' else 2, 'decay_mult': 0,
-         'name': "first_conv_bias"},
-        {'params': slow_feat, 'lr_mult': 1, 'decay_mult': 1,
-         'name': "slow_feat"},
-        {'params': slow_bias, 'lr_mult': 2, 'decay_mult': 0,
-         'name': "slow_bias"},
-        {'params': normal_feat, 'lr_mult': 1 , 'decay_mult': 1,
-         'name': "normal_feat"},
-        {'params': normal_bias, 'lr_mult': 2, 'decay_mult':0,
-         'name': "normal_bias"},
-        {'params': bn, 'lr_mult': 1, 'decay_mult': 0,
-         'name': "BN scale/shift"},
-    ]
+# def get_optim_policies(model=None,modality='RGB',enable_pbn=True):
+#     '''
+#     first conv:         weight --> conv weight
+#                         bias   --> conv bias
+#     normal action:      weight --> non-first conv + fc weight
+#                         bias   --> non-first conv + fc bias
+#     bn:                 the first bn2, and many all bn3.
+#
+#     '''
+#     first_conv_weight = []
+#     first_conv_bias = []
+#     normal_weight = []
+#     normal_bias = []
+#     bn = []
+#
+#     if model==None:
+#         log.l.info('no model!')
+#         exit()
+#
+#     conv_cnt = 0
+#     bn_cnt = 0
+#     for m in model.modules():
+#         if isinstance(m, torch.nn.Conv3d) or isinstance(m, torch.nn.Conv2d):
+#             ps = list(m.parameters())
+#             conv_cnt += 1
+#             if conv_cnt == 1:
+#                 first_conv_weight.append(ps[0])
+#                 if len(ps) == 2:
+#                     first_conv_bias.append(ps[1])
+#             else:
+#                 normal_weight.append(ps[0])
+#                 if len(ps) == 2:
+#                     normal_bias.append(ps[1])
+#         elif isinstance(m, torch.nn.Linear):
+#             ps = list(m.parameters())
+#             normal_weight.append(ps[0])
+#             if len(ps) == 2:
+#                 normal_bias.append(ps[1])
+#
+#         elif isinstance(m, torch.nn.BatchNorm3d):
+#             bn_cnt += 1
+#             # later BN's are frozen
+#             if not enable_pbn or bn_cnt == 1:
+#                 bn.extend(list(m.parameters()))
+#         elif isinstance(m,torch.nn.BatchNorm2d):
+#             bn.extend(list(m.parameters()))
+#         elif len(m._modules) == 0:
+#             if len(list(m.parameters())) > 0:
+#                 raise ValueError("New atomic module type: {}. Need to give it a learning policy".format(type(m)))
+#
+#     slow_rate=0.7
+#     n_fore=int(len(normal_weight)*slow_rate)
+#     slow_feat=normal_weight[:n_fore] # finetune slowly.
+#     slow_bias=normal_bias[:n_fore]
+#     normal_feat=normal_weight[n_fore:]
+#     normal_bias=normal_bias[n_fore:]
+#
+#     return [
+#         {'params': first_conv_weight, 'lr_mult': 5 if modality == 'Flow' else 1, 'decay_mult': 1,
+#          'name': "first_conv_weight"},
+#         {'params': first_conv_bias, 'lr_mult': 10 if modality == 'Flow' else 2, 'decay_mult': 0,
+#          'name': "first_conv_bias"},
+#         {'params': slow_feat, 'lr_mult': 1, 'decay_mult': 1,
+#          'name': "slow_feat"},
+#         {'params': slow_bias, 'lr_mult': 2, 'decay_mult': 0,
+#          'name': "slow_bias"},
+#         {'params': normal_feat, 'lr_mult': 1 , 'decay_mult': 1,
+#          'name': "normal_feat"},
+#         {'params': normal_bias, 'lr_mult': 2, 'decay_mult':0,
+#          'name': "normal_bias"},
+#         {'params': bn, 'lr_mult': 1, 'decay_mult': 0,
+#          'name': "BN scale/shift"},
+#     ]
 
 
 
 if __name__ == '__main__':
 
-    model = P3D199(pretrained=True,num_classes=400)
-    model = model.cuda()
-    data=torch.autograd.Variable(torch.rand(10,3,16,160,160)).cuda()   # if modality=='Flow', please change the 2nd dimension 3==>2
+    model = P3D199(pretrained=False,num_classes=400)
+    # model = model.cuda()
+    # data=torch.autograd.Variable(torch.rand(10,3,16,160,160)).cuda()   # if modality=='Flow', please change the 2nd dimension 3==>2
+    data = torch.autograd.Variable(torch.rand(10, 3, 16, 160, 160))
     out=model(data)
-    print (out.size(),out)
+    print (out.size(),out[1])
